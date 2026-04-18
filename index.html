@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投组雷达 PortfolioRadar - 专业投资组合管理</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Microsoft YaHei', sans-serif;
+            background-color: #0f172a; /* 深色背景 */
+            color: #f1f5f9;
+        }
+
+        .card {
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+        }
+
+        .text-profit { color: #22c55e; } /* 盈利绿色 */
+        .text-loss { color: #ef4444; }   /* 亏损红色 */
+
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- 顶部：产品名称 + 汇总卡片 -->
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                <span class="text-blue-500">📡</span> 投组雷达 <span class="text-slate-400 font-light text-lg">PortfolioRadar</span>
+            </h1>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 flex-1 md:ml-12">
+                <div class="card p-4">
+                    <p class="text-slate-400 text-sm">总市值</p>
+                    <p id="summary-current-value" class="text-xl font-bold mt-1">¥0.00</p>
+                </div>
+                <div class="card p-4">
+                    <p class="text-slate-400 text-sm">总成本</p>
+                    <p id="summary-cost-value" class="text-xl font-bold mt-1 text-slate-300">¥0.00</p>
+                </div>
+                <div class="card p-4">
+                    <p class="text-slate-400 text-sm">总盈亏</p>
+                    <p id="summary-profit-loss" class="text-xl font-bold mt-1">¥0.00</p>
+                </div>
+                <div class="card p-4">
+                    <p class="text-slate-400 text-sm">总收益率</p>
+                    <p id="summary-profit-rate" class="text-xl font-bold mt-1">0.00%</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- 中部：明细表格 + 饼图 -->
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- 左侧：持仓明细表格 -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-semibold">持仓明细</h2>
+                </div>
+                <div class="card overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-800 text-slate-400 border-b border-slate-700">
+                            <tr>
+                                <th class="p-4 font-semibold">名称/代码</th>
+                                <th class="p-4 font-semibold text-right">成本/当前价</th>
+                                <th class="p-4 font-semibold text-right">持仓数量</th>
+                                <th class="p-4 font-semibold text-right">市值/成本</th>
+                                <th class="p-4 font-semibold text-right">盈亏/比例</th>
+                                <th class="p-4 font-semibold text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="position-table-body">
+                            <!-- JS 动态渲染 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 右侧：Chart.js 饼图 -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-semibold">仓位占比</h2>
+                <div class="card p-6 h-[400px] flex items-center justify-center">
+                    <canvas id="allocation-chart"></canvas>
+                </div>
+            </div>
+        </main>
+
+        <!-- 底部：添加按钮 -->
+        <footer class="mt-8 flex justify-center">
+            <button onclick="FormHandler.openModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-semibold transition-all shadow-lg flex items-center gap-2">
+                <span>+</span> 添加持仓
+            </button>
+        </footer>
+    </div>
+
+    <!-- 添加/编辑持仓 Modal -->
+    <div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+        <div class="card w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <h3 id="modal-title" class="text-xl font-bold mb-6">添加持仓</h3>
+            <form id="position-form" onsubmit="FormHandler.handleSubmit(event)" class="space-y-4">
+                <input type="hidden" id="field-id">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="col-span-1">
+                        <label class="block text-xs text-slate-400 mb-1">名称</label>
+                        <input type="text" id="field-name" required placeholder="例如：贵州茅台" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div class="col-span-1">
+                        <label class="block text-xs text-slate-400 mb-1">代码</label>
+                        <input type="text" id="field-code" required placeholder="600519" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">成本价 (元)</label>
+                        <input type="number" step="0.01" id="field-costPrice" required min="0.01" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">当前价 (元)</label>
+                        <input type="number" step="0.01" id="field-currentPrice" required min="0.01" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">持仓数量 (股/份)</label>
+                    <input type="number" id="field-quantity" required min="1" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button type="button" onclick="FormHandler.closeModal()" class="flex-1 px-4 py-2 border border-slate-700 rounded text-slate-400 hover:bg-slate-800 transition-colors">取消</button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 rounded text-white font-semibold hover:bg-blue-700 transition-colors">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Calculator: 纯函数，计算盈亏/汇总
+         */
+        const Calculator = {
+            // 计算单条持仓的派生字段
+            calculatePosition(pos) {
+                const costValue = pos.costPrice * pos.quantity;
+                const currentValue = pos.currentPrice * pos.quantity;
+                const profitLoss = currentValue - costValue;
+                const profitRate = costValue === 0 ? 0 : profitLoss / costValue;
+                
+                return {
+                    ...pos,
+                    costValue,
+                    currentValue,
+                    profitLoss,
+                    profitRate
+                };
+            },
+
+            // 计算全量汇总数据
+            getSummary(positions) {
+                const totalCost = positions.reduce((sum, p) => sum + p.costValue, 0);
+                const totalValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
+                const totalProfit = totalValue - totalCost;
+                const totalRate = totalCost === 0 ? 0 : totalProfit / totalCost;
+
+                return {
+                    totalCost,
+                    totalValue,
+                    totalProfit,
+                    totalRate
+                };
+            }
+        };
+
+        /**
+         * DataStore: 负责 localStorage 读写
+         */
+        const DataStore = {
+            KEY: 'portfolio_radar_data',
+            
+            // 示例数据
+            SAMPLE_DATA: [
+                { id: '1', name: '贵州茅台', code: '600519', costPrice: 1800, currentPrice: 1950.5, quantity: 10 },
+                { id: '2', name: '比亚迪', code: '002594', costPrice: 220, currentPrice: 245.8, quantity: 100 },
+                { id: '3', name: '沪深300ETF', code: '510300', costPrice: 4.1, currentPrice: 3.85, quantity: 5000 }
+            ],
+
+            get() {
+                const data = localStorage.getItem(this.KEY);
+                if (!data) {
+                    this.save(this.SAMPLE_DATA);
+                    return this.SAMPLE_DATA.map(p => Calculator.calculatePosition(p));
+                }
+                return JSON.parse(data).map(p => Calculator.calculatePosition(p));
+            },
+
+            save(positions) {
+                // 保存时只存原始输入字段，不存计算字段
+                const rawData = positions.map(({ id, name, code, costPrice, currentPrice, quantity }) => ({
+                    id, name, code, costPrice, currentPrice, quantity
+                }));
+                localStorage.setItem(this.KEY, JSON.stringify(rawData));
+            }
+        };
+
+        /**
+         * Renderer: 负责 DOM 渲染
+         */
+        const Renderer = {
+            formatCurrency(num) {
+                return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(num);
+            },
+
+            formatPercent(num) {
+                return (num * 100).toFixed(2) + '%';
+            },
+
+            renderTable(positions) {
+                const tbody = document.getElementById('position-table-body');
+                tbody.innerHTML = positions.map(p => `
+                    <tr class="border-b border-slate-700 hover:bg-slate-800/50 transition-colors">
+                        <td class="p-4">
+                            <div class="font-semibold text-white">${p.name}</div>
+                            <div class="text-xs text-slate-500">${p.code}</div>
+                        </td>
+                        <td class="p-4 text-right">
+                            <div class="text-slate-300">${this.formatCurrency(p.costPrice)}</div>
+                            <div class="font-semibold text-white">${this.formatCurrency(p.currentPrice)}</div>
+                        </td>
+                        <td class="p-4 text-right text-slate-300">${p.quantity.toLocaleString()}</td>
+                        <td class="p-4 text-right">
+                            <div class="font-semibold text-white">${this.formatCurrency(p.currentValue)}</div>
+                            <div class="text-xs text-slate-500">成本: ${this.formatCurrency(p.costValue)}</div>
+                        </td>
+                        <td class="p-4 text-right">
+                            <div class="font-bold ${p.profitLoss >= 0 ? 'text-profit' : 'text-loss'}">
+                                ${p.profitLoss >= 0 ? '+' : ''}${this.formatCurrency(p.profitLoss)}
+                            </div>
+                            <div class="text-xs ${p.profitRate >= 0 ? 'text-profit' : 'text-loss'}">
+                                ${p.profitRate >= 0 ? '+' : ''}${this.formatPercent(p.profitRate)}
+                            </div>
+                        </td>
+                        <td class="p-4 text-center">
+                            <div class="flex items-center justify-center gap-2">
+                                <button onclick="FormHandler.openModal('${p.id}')" class="text-blue-400 hover:text-blue-300 text-xs p-1">编辑</button>
+                                <button onclick="App.deletePosition('${p.id}')" class="text-red-400 hover:text-red-300 text-xs p-1">删除</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            },
+
+            renderSummary(summary) {
+                document.getElementById('summary-current-value').textContent = this.formatCurrency(summary.totalValue);
+                document.getElementById('summary-cost-value').textContent = this.formatCurrency(summary.totalCost);
+                
+                const plEl = document.getElementById('summary-profit-loss');
+                plEl.textContent = (summary.totalProfit >= 0 ? '+' : '') + this.formatCurrency(summary.totalProfit);
+                plEl.className = `text-xl font-bold mt-1 ${summary.totalProfit >= 0 ? 'text-profit' : 'text-loss'}`;
+
+                const prEl = document.getElementById('summary-profit-rate');
+                prEl.textContent = (summary.totalRate >= 0 ? '+' : '') + this.formatPercent(summary.totalRate);
+                prEl.className = `text-xl font-bold mt-1 ${summary.totalRate >= 0 ? 'text-profit' : 'text-loss'}`;
+            }
+        };
+
+        /**
+         * ChartManager: 负责 Chart.js 饼图渲染
+         */
+        const ChartManager = {
+            chart: null,
+
+            updateChart(positions) {
+                const ctx = document.getElementById('allocation-chart').getContext('2d');
+                const data = positions.map(p => p.currentValue);
+                const labels = positions.map(p => p.name);
+
+                if (this.chart) {
+                    this.chart.destroy();
+                }
+
+                this.chart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: [
+                                '#3b82f6', '#10b981', '#f59e0b', '#ef4444', 
+                                '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'
+                            ],
+                            borderWidth: 0,
+                            hoverOffset: 10
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: '#94a3b8', padding: 20, font: { size: 12 } }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => {
+                                        const value = context.raw;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((value / total) * 100).toFixed(2) + '%';
+                                        return `${context.label}: ${Renderer.formatCurrency(value)} (${percentage})`;
+                                    }
+                                }
+                            }
+                        },
+                        cutout: '65%'
+                    }
+                });
+            }
+        };
+
+        /**
+         * FormHandler: 负责表单弹窗
+         */
+        const FormHandler = {
+            openModal(id = null) {
+                const modal = document.getElementById('modal');
+                const title = document.getElementById('modal-title');
+                const form = document.getElementById('position-form');
+                
+                form.reset();
+                document.getElementById('field-id').value = id || '';
+
+                if (id) {
+                    title.textContent = '编辑持仓';
+                    const pos = App.positions.find(p => p.id === id);
+                    if (pos) {
+                        document.getElementById('field-name').value = pos.name;
+                        document.getElementById('field-code').value = pos.code;
+                        document.getElementById('field-costPrice').value = pos.costPrice;
+                        document.getElementById('field-currentPrice').value = pos.currentPrice;
+                        document.getElementById('field-quantity').value = pos.quantity;
+                    }
+                } else {
+                    title.textContent = '添加持仓';
+                }
+
+                modal.classList.remove('hidden');
+            },
+
+            closeModal() {
+                document.getElementById('modal').classList.add('hidden');
+            },
+
+            handleSubmit(event) {
+                event.preventDefault();
+                const id = document.getElementById('field-id').value;
+                const data = {
+                    id: id || crypto.randomUUID(),
+                    name: document.getElementById('field-name').value,
+                    code: document.getElementById('field-code').value,
+                    costPrice: parseFloat(document.getElementById('field-costPrice').value),
+                    currentPrice: parseFloat(document.getElementById('field-currentPrice').value),
+                    quantity: parseInt(document.getElementById('field-quantity').value)
+                };
+
+                if (id) {
+                    App.updatePosition(data);
+                } else {
+                    App.addPosition(data);
+                }
+
+                this.closeModal();
+            }
+        };
+
+        /**
+         * App: 应用主逻辑
+         */
+        const App = {
+            positions: [],
+
+            init() {
+                this.positions = DataStore.get();
+                this.refreshUI();
+            },
+
+            addPosition(pos) {
+                const newPos = Calculator.calculatePosition(pos);
+                this.positions.push(newPos);
+                this.sync();
+            },
+
+            updatePosition(updatedPos) {
+                const index = this.positions.findIndex(p => p.id === updatedPos.id);
+                if (index !== -1) {
+                    this.positions[index] = Calculator.calculatePosition(updatedPos);
+                    this.sync();
+                }
+            },
+
+            deletePosition(id) {
+                if (confirm('确定要删除这条持仓吗？')) {
+                    this.positions = this.positions.filter(p => p.id !== id);
+                    this.sync();
+                }
+            },
+
+            sync() {
+                DataStore.save(this.positions);
+                this.refreshUI();
+            },
+
+            refreshUI() {
+                const summary = Calculator.getSummary(this.positions);
+                Renderer.renderTable(this.positions);
+                Renderer.renderSummary(summary);
+                ChartManager.updateChart(this.positions);
+            }
+        };
+
+        // 页面加载启动
+        window.addEventListener('DOMContentLoaded', () => App.init());
+    </script>
+</body>
+</html>
